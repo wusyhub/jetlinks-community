@@ -1,6 +1,5 @@
 package org.jetlinks.community.auth.entity;
 
-import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
 import lombok.Setter;
@@ -10,16 +9,15 @@ import org.hswebframework.ezorm.rdb.mapping.annotation.Comment;
 import org.hswebframework.ezorm.rdb.mapping.annotation.DefaultValue;
 import org.hswebframework.ezorm.rdb.mapping.annotation.JsonCodec;
 import org.hswebframework.web.api.crud.entity.GenericTreeSortSupportEntity;
-import org.jetlinks.community.auth.web.request.AuthorizationSettingDetail;
 
 import javax.persistence.Column;
 import javax.persistence.Index;
 import javax.persistence.Table;
 import java.sql.JDBCType;
-import java.util.*;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.function.BiPredicate;
-import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 /**
  * 菜单定义实体类
@@ -32,30 +30,55 @@ import java.util.stream.Collectors;
 @Table(name = "s_menu", indexes = {
     @Index(name = "idx_menu_path", columnList = "path")
 })
-public class MenuEntity
-    extends GenericTreeSortSupportEntity<String> {
+public class MenuEntity extends GenericTreeSortSupportEntity<String> {
 
     @Schema(description = "名称")
     @Comment("菜单名称")
     @Column(length = 32)
     private String name;
 
+    @Schema(description = "分类1-系统 2-租户")
+    @Comment("分类1-系统 2-租户")
+    @Column(name = "category", length = 1)
+    @DefaultValue("1")
+    private Integer category;
+
+    @Schema(description = "租户id")
+    @Comment("菜单名称")
+    @Column(name = "tenant_id", length = 64)
+    private String tenantId;
+
+    @Schema(description = "类型1-目录 2-菜单 3-按钮")
+    @Comment("类型1-目录 2-菜单 3-按钮")
+    @Column(name = "type", length = 1)
+    @DefaultValue("2")
+    private Integer type;
+
     @Comment("描述")
-    @Column
+    @Column(length = 256)
     @ColumnType(jdbcType = JDBCType.CLOB)
     @Schema(description = "描述")
     private String describe;
 
-    @Hidden
-    @Deprecated
-    @Comment("权限表达式")
-    @Column(name = "permission_expression", length = 256)
-    private String permissionExpression;
+    @Schema(description = "权限标识")
+    @Comment("权限标识")
+    @Column(length = 64)
+    private String permission;
 
-    @Comment("菜单对应的url")
+    @Comment("URL,路由")
     @Column(length = 512)
     @Schema(description = "URL,路由")
     private String url;
+
+    @Comment("组件路径")
+    @Column(length = 256)
+    @Schema(description = "组件路径")
+    private String component;
+
+    @Schema(description = "打开方式")
+    @Comment("打开方式")
+    @Column(name = "target", length = 256)
+    private String target;
 
     @Comment("图标")
     @Column(length = 256)
@@ -63,11 +86,11 @@ public class MenuEntity
     private String icon;
 
     @Comment("状态")
-    @Column
+    @Column(length = 1)
     @ColumnType(jdbcType = JDBCType.SMALLINT)
     @Schema(description = "状态,0为禁用,1为启用")
     @DefaultValue("1")
-    private Byte status;
+    private Integer status;
 
     @Schema(description = "默认权限信息")
     @Column
@@ -75,11 +98,6 @@ public class MenuEntity
     @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
     private List<PermissionInfo> permissions;
 
-    @Schema(description = "按钮定义信息")
-    @Column
-    @JsonCodec
-    @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
-    private List<MenuButtonInfo> buttons;
 
     @Schema(description = "其他配置信息")
     @Column
@@ -87,29 +105,22 @@ public class MenuEntity
     @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
     private Map<String, Object> options;
 
-    //子菜单
+    @Schema(description = "按钮定义信息")
+    private List<MenuEntity> buttons;
+
     @Schema(description = "子菜单")
     private List<MenuEntity> children;
 
-    public MenuEntity copy(Predicate<MenuButtonInfo> buttonPredicate) {
-        MenuEntity entity = this.copyTo(new MenuEntity());
-
-        if (CollectionUtils.isEmpty(entity.getButtons())) {
-            return entity;
-        }
-        entity.setButtons(
-            entity
-                .getButtons()
-                .stream()
-                .filter(buttonPredicate)
-                .collect(Collectors.toList())
-        );
-        return entity;
-    }
-
+    /**
+     * 判断是否有权限
+     *
+     * @param predicate
+     * @return
+     */
     public boolean hasPermission(BiPredicate<String, Collection<String>> predicate) {
-        if (CollectionUtils.isEmpty(permissions) && CollectionUtils.isEmpty(buttons)) {
-            return false;
+        //没有配置权限信息说明,该菜单所有人都可以访问
+        if (CollectionUtils.isEmpty(permissions)) {
+            return true;
         }
         //有权限信息
         if (CollectionUtils.isNotEmpty(permissions)) {
@@ -120,24 +131,6 @@ public class MenuEntity
             }
             return true;
         }
-        //有任意按钮信息
-        if (CollectionUtils.isNotEmpty(buttons)) {
-            for (MenuButtonInfo button : buttons) {
-                if (button.hasPermission(predicate)) {
-                    return true;
-                }
-            }
-        }
         return false;
-    }
-
-    public Optional<MenuButtonInfo> getButton(String id) {
-        if (buttons == null) {
-            return Optional.empty();
-        }
-        return buttons
-            .stream()
-            .filter(button -> Objects.equals(button.getId(), id))
-            .findAny();
     }
 }

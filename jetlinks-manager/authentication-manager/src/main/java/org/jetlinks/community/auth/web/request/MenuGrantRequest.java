@@ -6,14 +6,13 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.apache.commons.collections4.CollectionUtils;
-import org.hswebframework.web.api.crud.entity.TreeSupportEntity;
-import org.hswebframework.web.id.IDGenerator;
-import org.jetlinks.community.auth.entity.MenuView;
 import org.jetlinks.community.auth.entity.MenuEntity;
-import org.jetlinks.community.auth.entity.MenuView;
 import org.jetlinks.community.auth.entity.PermissionInfo;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -25,10 +24,11 @@ import java.util.stream.Collectors;
 public class MenuGrantRequest {
 
 
+    @Schema(description = "类型")
     private String targetType;
 
+    @Schema(description = "类型id")
     private String targetId;
-
     /**
      * 冲突时是否合并
      */
@@ -42,10 +42,21 @@ public class MenuGrantRequest {
     private int priority = 10;
 
     @Schema(description = "授权的菜单信息")
-    private List<MenuView> menus;
+    private List<String> menuIds;
 
-    public AuthorizationSettingDetail toAuthorizationSettingDetail(List<MenuEntity> menuEntities) {
-        Map<String, MenuEntity> menuMap = menuEntities
+    public MenuGrantRequest(String targetType, String targetId) {
+        this.targetType = targetType;
+        this.targetId = targetId;
+    }
+
+    /**
+     * 获取接口权限信息
+     *
+     * @param list
+     * @return
+     */
+    public AuthorizationSettingDetail toAuthorizationSettingDetail(List<MenuEntity> list) {
+        Map<String, MenuEntity> menuMap = list
             .stream()
             .collect(Collectors.toMap(MenuEntity::getId, Function.identity()));
         AuthorizationSettingDetail detail = new AuthorizationSettingDetail();
@@ -53,53 +64,26 @@ public class MenuGrantRequest {
         detail.setTargetId(targetId);
         detail.setMerge(merge);
         detail.setPriority(priority);
-
-        Map<String, Set<String>> permissionInfos = new ConcurrentHashMap<>();
-
-        for (MenuView menu : menus) {
-            //平铺
-            List<MenuView> expand = TreeSupportEntity.expandTree2List(menu, IDGenerator.MD5);
-            for (MenuView menuView : expand) {
-                MenuEntity entity = menuMap.get(menuView.getId());
-                if (entity == null) {
-                    continue;
-                }
-                //自动持有配置的权限
-                if (CollectionUtils.isNotEmpty(entity.getPermissions())) {
-                    for (PermissionInfo permission : entity.getPermissions()) {
-                        permissionInfos
-                            .computeIfAbsent(permission.getPermission(), ignore -> new HashSet<>())
-                            .addAll(permission.getActions());
-                    }
-                }
-
-                if (CollectionUtils.isNotEmpty(menuView.getButtons())) {
-                    for (MenuView.ButtonView button : menuView.getButtons()) {
-                        entity.getButton(button.getId())
-                              .ifPresent(buttonInfo -> {
-                                  if (CollectionUtils.isNotEmpty(buttonInfo.getPermissions())) {
-                                      for (PermissionInfo permission : buttonInfo.getPermissions()) {
-                                          if (CollectionUtils.isEmpty(permission.getActions())) {
-                                              continue;
-                                          }
-                                          permissionInfos
-                                              .computeIfAbsent(permission.getPermission(), ignore -> new HashSet<>())
-                                              .addAll(permission.getActions());
-                                      }
-
-                                  }
-                              });
-                    }
+        Map<String, Set<String>> permissions = new ConcurrentHashMap<>(8);
+        for (String menuId : menuIds) {
+            MenuEntity entity = menuMap.get(menuId);
+            if (entity == null) {
+                continue;
+            }
+            //自动持有配置的权限
+            if (CollectionUtils.isNotEmpty(entity.getPermissions())) {
+                for (PermissionInfo permission : entity.getPermissions()) {
+                    permissions
+                        .computeIfAbsent(permission.getPermission(), ignore -> new HashSet<>())
+                        .addAll(permission.getActions());
                 }
             }
         }
-        detail.setPermissionList(permissionInfos
-                                     .entrySet()
-                                     .stream()
-                                     .map(e -> AuthorizationSettingDetail.PermissionInfo.of(e.getKey(), e.getValue()))
-                                     .collect(Collectors.toList()));
-
-
+        detail.setPermissionList(permissions
+            .entrySet()
+            .stream()
+            .map(e -> AuthorizationSettingDetail.PermissionInfo.of(e.getKey(), e.getValue()))
+            .collect(Collectors.toList()));
         return detail;
     }
 

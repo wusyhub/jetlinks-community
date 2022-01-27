@@ -13,9 +13,7 @@ import java.util.List;
  * @since 1.0
  */
 @Service
-public class DefaultMenuService
-        extends GenericReactiveCrudService<MenuEntity, String>
-        implements ReactiveTreeSortEntityService<MenuEntity, String> {
+public class DefaultMenuService extends GenericReactiveCrudService<MenuEntity, String> implements ReactiveTreeSortEntityService<MenuEntity, String> {
     @Override
     public IDGenerator<String> getIDGenerator() {
         return IDGenerator.MD5;

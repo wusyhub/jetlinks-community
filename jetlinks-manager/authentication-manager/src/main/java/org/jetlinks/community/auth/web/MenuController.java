@@ -3,30 +3,27 @@ package org.jetlinks.community.auth.web;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
-import org.hswebframework.web.api.crud.entity.TreeSupportEntity;
+import org.apache.commons.collections4.CollectionUtils;
+import org.hswebframework.ezorm.rdb.mapping.defaults.SaveResult;
 import org.hswebframework.web.authorization.Authentication;
 import org.hswebframework.web.authorization.annotation.Authorize;
 import org.hswebframework.web.authorization.annotation.Resource;
 import org.hswebframework.web.authorization.annotation.ResourceAction;
+import org.hswebframework.web.authorization.annotation.SaveAction;
 import org.hswebframework.web.authorization.exception.UnAuthorizedException;
 import org.hswebframework.web.crud.service.ReactiveCrudService;
 import org.hswebframework.web.crud.web.reactive.ReactiveServiceCrudController;
-import org.jetlinks.community.auth.entity.MenuButtonInfo;
 import org.jetlinks.community.auth.entity.MenuEntity;
-import org.jetlinks.community.auth.entity.MenuView;
+import org.jetlinks.community.auth.enums.MenuStateEnum;
 import org.jetlinks.community.auth.service.AuthorizationSettingDetailService;
 import org.jetlinks.community.auth.service.DefaultMenuService;
+import org.jetlinks.community.auth.service.MenuGrantService;
 import org.jetlinks.community.auth.web.request.MenuGrantRequest;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -45,12 +42,34 @@ public class MenuController implements ReactiveServiceCrudController<MenuEntity,
 
     private final DefaultMenuService defaultMenuService;
 
+    private final MenuGrantService menuGrantService;
+
     private final AuthorizationSettingDetailService settingService;
 
     @Override
     public ReactiveCrudService<MenuEntity, String> getService() {
         return defaultMenuService;
     }
+
+    @Override
+    @PatchMapping
+    @SaveAction
+    @Operation(summary = "保存数据", description = "如果传入了id,并且对应数据存在,则尝试覆盖,不存在则新增.")
+    public Mono<SaveResult> save(@RequestBody Flux<MenuEntity> payload) {
+        return Authentication.currentReactive()
+            .flatMapMany(auth -> payload.map(entity -> applyAuthentication(entity, auth)))
+            .switchIfEmpty(payload)
+            .flatMap(entity -> getService().createQuery()
+                .where(MenuEntity::getPermission, entity.getPermission())
+                .fetchOne().map(room -> {
+                    if (room.getId().equals(entity.getId())) {
+                        return entity;
+                    }
+                    throw new RuntimeException("权限标识已存在!");
+                }).defaultIfEmpty(entity))
+            .as(getService()::save);
+    }
+
 
     /**
      * 获取用户自己的菜单列表
@@ -60,135 +79,94 @@ public class MenuController implements ReactiveServiceCrudController<MenuEntity,
     @GetMapping("/user-own/tree")
     @Authorize(merge = false)
     @Operation(summary = "获取当前用户可访问的菜单(树结构)")
-    public Flux<MenuView> getUserMenuAsTree() {
-        return this
-            .getUserMenuAsList()
-            .as(MenuController::listToTree);
+    public Flux<MenuEntity> getUserMenuAsTree() {
+        return this.getUserMenuAsList().as(menuGrantService::listToTree);
     }
 
 
     @GetMapping("/user-own/list")
     @Authorize(merge = false)
     @Operation(summary = "获取当前用户可访问的菜单(列表结构)")
-    public Flux<MenuView> getUserMenuAsList() {
+    public Flux<MenuEntity> getUserMenuAsList() {
         return Authentication
             .currentReactive()
             .switchIfEmpty(Mono.error(UnAuthorizedException::new))
             .flatMapMany(autz -> defaultMenuService
                 .createQuery()
-                .where(MenuEntity::getStatus,1)
+                //.where(MenuEntity::getStatus, MenuStateEnum.ENABLED.getValue())
                 .fetch()
                 .collect(Collectors.toMap(MenuEntity::getId, Function.identity()))
-                .flatMapIterable(menuMap -> MenuController
-                    .convertMenuView(menuMap,
-                                     menu -> "admin".equals(autz.getUser().getUsername()) ||
-                                         menu.hasPermission(autz::hasPermission),
-                                     button -> "admin".equals(autz.getUser().getUsername()) ||
-                                         button.hasPermission(autz::hasPermission)
-                    )));
+                .flatMapIterable(menuMap ->
+                    menuGrantService.convert(menuMap,
+                        menu -> "admin".equals(autz.getUser().getUsername()) ||
+                            menu.hasPermission(autz::hasPermission)
+                    ))
+            );
+    }
+
+    @GetMapping("/role-own/tree")
+    @Authorize(merge = false)
+    @Operation(summary = "获取用户角色的菜单列表(树结构)")
+    public Flux<MenuEntity> getUserRoleMenuAsTree() {
+        return this.getUserRoleMenuAsList().as(menuGrantService::listToTree);
+    }
+
+
+    @GetMapping("/role-own/list")
+    @Authorize(merge = false)
+    @Operation(summary = "获取用户角色的菜单列表(列表结构)")
+    public Flux<MenuEntity> getUserRoleMenuAsList() {
+        return menuGrantService.getUserRoleMenuAsList();
     }
 
     @PutMapping("/_grant")
     @Operation(summary = "根据菜单进行授权")
     @ResourceAction(id = "grant", name = "授权")
     public Mono<Void> grant(@RequestBody Mono<MenuGrantRequest> body) {
-        return Mono
-            .zip(
-                //T1: 当前用户权限信息
-                Authentication.currentReactive(),
-                //T2: 将菜单信息转为授权信息
-                Mono
-                    .zip(body,
-                         defaultMenuService
-                             .createQuery()
-                             .where(MenuEntity::getStatus,1)
-                             .fetch()
-                             .collectList(),
-                         MenuGrantRequest::toAuthorizationSettingDetail
-                    )
-                    .map(Flux::just),
-                //保存授权信息
-                settingService::saveDetail
-            )
-            .flatMap(Function.identity());
+        return body
+            .map(request -> menuGrantService.grant(request).thenReturn(request))
+            .flatMap(request -> Mono.zip(request,
+                defaultMenuService
+                    .createQuery()
+                    .where(MenuEntity::getStatus, MenuStateEnum.ENABLED.getValue())
+                    .fetch()
+                    .collectList(),
+                MenuGrantRequest::toAuthorizationSettingDetail
+            ))
+            .filter(detail -> CollectionUtils.isNotEmpty(detail.getPermissionList()))
+            .flatMap(detail -> Authentication.currentReactive()
+                .map(auth -> settingService.saveDetail(auth, Flux.just(detail)))
+            ).flatMap(Function.identity());
     }
 
     @GetMapping("/{targetType}/{targetId}/_grant/tree")
-    @ResourceAction(id = "grant", name = "授权")
-    @Operation(summary = "获取菜单授权信息(树结构)")
-    public Flux<MenuView> getGrantInfoTree(@PathVariable String targetType,
-                                           @PathVariable String targetId) {
+    @Authorize(merge = false)
+    @Operation(summary = "获取根据授权类型菜单授权信息(树结构)")
+    public Flux<MenuEntity> getGrantInfoTree(@PathVariable String targetType,
+                                             @PathVariable String targetId) {
 
-        return this
-            .getGrantInfo(targetType, targetId)
-            .as(MenuController::listToTree);
+        return this.getGrantTargetInfo(targetType, targetId).as(menuGrantService::listToTree);
     }
 
     @GetMapping("/{targetType}/{targetId}/_grant/list")
-    @ResourceAction(id = "grant", name = "授权")
+    @Authorize(merge = false)
+    @Operation(summary = "获取根据授权类型菜单授权信息(列表结构)")
+    public Flux<MenuEntity> getGrantTargetInfo(@PathVariable String targetType, @PathVariable String targetId) {
+        return menuGrantService.getGrantTargetInfo(targetType, targetId);
+    }
+
+    @GetMapping("/_grant/tree")
+    @Authorize(merge = false)
+    @Operation(summary = "获取菜单授权信息(树结构)")
+    public Flux<MenuEntity> getGrantInfoTree() {
+        return this.getGrantInfo().as(menuGrantService::listToTree);
+    }
+
+    @GetMapping("/_grant/list")
+    @Authorize(merge = false)
     @Operation(summary = "获取菜单授权信息(列表结构)")
-    public Flux<MenuView> getGrantInfo(@PathVariable String targetType,
-                                       @PathVariable String targetId) {
-
-        return Mono
-            .zip(
-                //权限设置信息
-                settingService.getSettingDetail(targetType, targetId),
-                //菜单
-                defaultMenuService
-                    .createQuery()
-                    .where(MenuEntity::getStatus,1)
-                    .fetch()
-                    .collectMap(MenuEntity::getId, Function.identity()),
-                (detail, menuMap) -> MenuController
-                    .convertMenuView(menuMap,
-                                     menu -> menu.hasPermission(detail::hasPermission),
-                                     button -> button.hasPermission(detail::hasPermission)
-                    )
-            )
-            .flatMapIterable(Function.identity());
-    }
-
-    private static Flux<MenuView> listToTree(Flux<MenuView> flux) {
-        return flux
-            .collectList()
-            .flatMapIterable(list -> TreeSupportEntity
-                .list2tree(list,
-                           MenuView::setChildren,
-                           (Predicate<MenuView>) n ->
-                               StringUtils.isEmpty(n.getParentId())
-                                   || "-1".equals(n.getParentId())));
-    }
-
-    private static Collection<MenuView> convertMenuView(Map<String, MenuEntity> menuMap,
-                                                        Predicate<MenuEntity> menuPredicate,
-                                                        Predicate<MenuButtonInfo> buttonPredicate) {
-        Map<String, MenuEntity> group = new HashMap<>();
-        for (MenuEntity menu : menuMap.values()) {
-            if (group.containsKey(menu.getId())) {
-                continue;
-            }
-            if (menuPredicate.test(menu)) {
-                String parentId = menu.getParentId();
-                MenuEntity parent;
-                group.put(menu.getId(), menu);
-                //有子菜单默认就有父菜单
-                while (!StringUtils.isEmpty(parentId)) {
-                    parent = menuMap.get(parentId);
-                    if (parent == null) {
-                        break;
-                    }
-                    parentId = parent.getParentId();
-                    group.put(parent.getId(), parent);
-                }
-            }
-        }
-        return group
-            .values()
-            .stream()
-            .map(menu -> MenuView.of(menu.copy(buttonPredicate)))
-            .sorted()
-            .collect(Collectors.toList());
+    public Flux<MenuEntity> getGrantInfo() {
+        return menuGrantService.getGrantMenuList();
     }
 
 }
