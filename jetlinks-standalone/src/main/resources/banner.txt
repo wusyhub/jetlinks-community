@@ -8,4 +8,4 @@
   spring-boot    ${spring-boot.version}
   http port      ${server.port}
   redis          ${spring.redis.host}:${spring.redis.port}
-  r2dbc          ${spring.r2dbc.url}
+  jdbc           ${spring.datasource.url}

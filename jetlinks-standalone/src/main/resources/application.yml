@@ -16,25 +16,37 @@ spring:
     static-locations: file:./static/,/,classpath:/META-INF/resources/,classpath:/resources/,classpath:/static/, classpath:/public/
   redis:
     host: 127.0.0.1
-    port: 6379
+    port: 6279
+    password: jetlinks
     lettuce:
       pool:
         max-active: 1024
     timeout: 20s
-    serializer: jdk # 设置fst时,redis key使用string序列化,value使用 fst序列化.
-#    database: 3
+    serializer: jsk # 设置fst时,redis key使用string序列化,value使用 fst序列化.
+  #    database: 3
   #        max-wait: 10s
-  r2dbc:
-    # 需要手动创建数据库,启动会自动创建表,修改了配置easyorm相关配置也要修改
-    url: r2dbc:postgresql://localhost:5432/jetlinks
-#    url: r2dbc:mysql://localhost:3306/jetlinks?ssl=false&serverZoneId=Asia/Shanghai # 修改了配置easyorm相关配置也要修改
-    username: postgres
+  #=================数据库连接配置=============================
+  datasource:
+    #数据库地址
+    url: jdbc:mysql://127.0.0.1:3308/jetlinks?autoReconnect=true&failOverReadOnly=false&useUnicode=true&characterEncoding=utf8&rewriteBatchedStatements=true&useConfigs=maxPerformance&useSSL=false
+    #数据库用户名
+    username: root
+    #数据库密码
     password: jetlinks
-    pool:
-      max-size: 32
-      max-idle-time: 2m # 值不能大于mysql server的wait_timeout配置
-      max-life-time: 10m
-      acquire-retry: 3
+    #数据库驱动
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      #最大连接数
+      max-active: 20
+      #最小空闲数
+      min-idle: 8
+      #初始化连接数
+      initial-size: 10
+      #对池中空闲的连接是否进行验证，验证失败则回收此连接
+      test-while-idle: true
+      #数据库心跳检测语句
+      validation-query: SELECT 1
   reactor:
     debug-agent:
       enabled: false
@@ -47,11 +59,12 @@ spring:
           socket-timeout: 5000
           connection-timeout: 8000
 easyorm:
-  default-schema: public # 数据库默认的schema
-  dialect: postgres #数据库方言
+  default-schema: jetlinks # 数据库默认的schema
+  dialect: mysql #数据库方言
+  auto-ddl: true #关闭自动生成数据库表
 elasticsearch:
   embedded:
-    enabled: false # 为true时使用内嵌的elasticsearch,不建议在生产环境中使用
+    enabled: true # 为true时使用内嵌的elasticsearch,不建议在生产环境中使用
     data-path: ./data/elasticsearch
     port: 9200
     host: 0.0.0.0
@@ -74,8 +87,8 @@ hsweb:
     configs:
       - path: /**
         allowed-headers: "*"
-        allowed-methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-        allowed-origins: ["*"]
+        allowed-methods: [ "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS" ]
+        allowed-origins: [ "*" ]
         allow-credentials: true
         max-age: 1800
   dict:
@@ -83,7 +96,13 @@ hsweb:
   file:
     upload:
       static-file-path: ./static/upload
-      static-location: http://localhost:8848/upload
+      static-location: /jetlinks/file/display
+      storage: local
+    minio:
+      server:
+        endpoint: http://127.0.0.1:8888
+        access: admin
+        secret: jetlinks
   webflux:
     response-wrapper:
       enabled: true #开启响应包装器(将返回值包装为ResponseMessage)
@@ -136,7 +155,7 @@ logging:
     io.vertx.mqtt.impl: warn
     #    org.springframework.data.elasticsearch.client: trace
     #    org.elasticsearch: error
-    org.jetlinks.pro.influx: trace
+    org.jetlinks.community.influx: trace
     org.elasticsearch: error
     org.elasticsearch.deprecation.search.aggregations.bucket.histogram: error
   config: classpath:logback-spring.xml
@@ -159,7 +178,7 @@ management:
       enabled: false  # 关闭elasticsearch健康检查
 springdoc:
   swagger-ui:
-    path: /swagger-ui.html
+    path: /doc.html
   #  packages-to-scan: org.jetlinks
   group-configs:
     - group: 设备管理相关接口

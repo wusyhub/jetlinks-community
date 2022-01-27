@@ -1,6 +1,44 @@
-<?xml version="1.0" encoding="UTF-8" ?>
-<configuration>
-    <appender name="LOGEventPublisher" class="org.jetlinks.community.logging.logback.SystemLoggingAppender" />
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration debug="false">
+    <!--定义日志文件的存储地址 勿在 LogBack 的配置中使用相对路径-->
+    <property name="LOG_HOME" value="./logs"/>
+
+    <!-- 控制台输出 -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <!-- 日志输出编码 -->
+        <encoder>
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <layout class="ch.qos.logback.classic.PatternLayout">
+            <!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符-->
+            <pattern>[%date{yyyy-MM-dd HH:mm:ss.SSS}] %X{logthreadId} %-5level %logger{80} %line - %msg%n</pattern>
+        </layout>
+    </appender>
+
+    <!-- 按照每天生成日志文件 -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- 日志输出编码 -->
+        <encoder>
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <layout class="ch.qos.logback.classic.PatternLayout">
+            <!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符-->
+            <pattern>[%date{yyyy-MM-dd HH:mm:ss.SSS}] %X{logthreadId} %-5level %logger{80} %line - %msg%n</pattern>
+        </layout>
+        <file>${LOG_HOME}/output.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 日子名称格式 -->
+            <fileNamePattern>${LOG_HOME}/output.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <!-- 每个文件最大40M，保留30天，但是所有的日志总大小不能超过1G -->
+            <maxFileSize>40MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <appender name="LOGEventPublisher" class="org.jetlinks.community.logging.logback.SystemLoggingAppender"/>
 
     <appender name="ErrorLOGEventPublisher" class="org.jetlinks.community.logging.logback.SystemLoggingAppender">
         <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
@@ -8,31 +46,49 @@
         </filter>
     </appender>
 
-    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
-    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
-
+    <!--开发环境基本级别为DEBUG-->
     <springProfile name="dev">
-
         <logger name="system" level="debug">
             <appender-ref ref="LOGEventPublisher"/>
         </logger>
 
         <root level="INFO">
-            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="STDOUT"/>
+            <appender-ref ref="FILE"/>
             <appender-ref ref="ErrorLOGEventPublisher"/>
         </root>
     </springProfile>
 
+    <!--本地环境基本级别为DEBUG-->
+    <springProfile name="local">
+        <logger name="system" level="debug">
+            <appender-ref ref="LOGEventPublisher"/>
+        </logger>
+
+        <root level="INFO">
+            <appender-ref ref="STDOUT"/>
+            <appender-ref ref="FILE"/>
+            <appender-ref ref="ErrorLOGEventPublisher"/>
+        </root>
+    </springProfile>
+
+    <!--生产环境输入到文件中-->
+    <springProfile name="prod">
+        <root level="INFO">
+            <appender-ref ref="STDOUT"/>
+            <appender-ref ref="FILE"/>
+            <appender-ref ref="ErrorLOGEventPublisher"/>
+        </root>
+    </springProfile>
+
+    <!--生产环境输入到文件中-->
     <springProfile name="test">
         <root level="INFO">
-            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="STDOUT"/>
+            <appender-ref ref="FILE"/>
             <appender-ref ref="ErrorLOGEventPublisher"/>
         </root>
     </springProfile>
 
-    <springProfile name="prod">
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="LOGEventPublisher"/>
-    </springProfile>
 
 </configuration>
