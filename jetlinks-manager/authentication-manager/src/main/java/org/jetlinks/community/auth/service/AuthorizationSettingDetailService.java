@@ -2,6 +2,7 @@ package org.jetlinks.community.auth.service;
 
 import lombok.AllArgsConstructor;
 import org.apache.commons.collections4.CollectionUtils;
+import org.hswebframework.web.api.crud.entity.TransactionManagers;
 import org.hswebframework.web.authorization.Authentication;
 import org.hswebframework.web.authorization.DimensionProvider;
 import org.hswebframework.web.system.authorization.api.entity.AuthorizationSettingEntity;
@@ -23,7 +24,7 @@ public class AuthorizationSettingDetailService {
     private final List<DimensionProvider> providers;
     private final PermissionProperties permissionProperties;
 
-    @Transactional
+    @Transactional(transactionManager = TransactionManagers.reactiveTransactionManager, rollbackFor = Throwable.class)
     public Mono<Void> saveDetail(Authentication authentication, Flux<AuthorizationSettingDetail> detailFlux) {
         return detailFlux
             //先删除旧的权限设置
