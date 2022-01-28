@@ -6,7 +6,6 @@
         <artifactId>jetlinks-components</artifactId>
         <groupId>org.jetlinks.community</groupId>
         <version>${reversion}</version>
-        <relativePath>../pom.xml</relativePath>
     </parent>
     <packaging>pom</packaging>
     <modelVersion>4.0.0</modelVersion>

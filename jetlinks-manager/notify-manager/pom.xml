@@ -8,7 +8,6 @@
         <groupId>org.jetlinks.community</groupId>
         <artifactId>jetlinks-manager</artifactId>
         <version>${reversion}</version>
-        <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>notify-manager</artifactId>
 
